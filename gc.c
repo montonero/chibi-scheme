@@ -90,6 +90,7 @@ void sexp_release_object(sexp ctx, sexp x) {
     }
 }
 
+SEXP_API sexp_uint_t sexp_allocated_bytes (sexp ctx, sexp x);
 sexp_uint_t sexp_allocated_bytes (sexp ctx, sexp x) {
   sexp_uint_t res;
   sexp t;

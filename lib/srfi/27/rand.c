@@ -200,6 +200,7 @@ sexp sexp_random_source_pseudo_randomize (sexp ctx, sexp self, sexp_sint_t n, se
   return SEXP_VOID;
 }
 
+SEXP_API sexp sexp_init_library (sexp ctx, sexp self, sexp_sint_t n, sexp env, const char* version, const sexp_abi_identifier_t abi);
 sexp sexp_init_library (sexp ctx, sexp self, sexp_sint_t n, sexp env, const char* version, const sexp_abi_identifier_t abi) {
   sexp_gc_var2(name, op);
   if (!(sexp_version_compatible(ctx, version, sexp_version)
