@@ -154,7 +154,8 @@ static void repl (sexp ctx, sexp env) {
 #endif
       if (res && sexp_exceptionp(res)) {
         sexp_print_exception(ctx, res, err);
-        sexp_stack_trace(ctx, err);
+        if (res != sexp_global(ctx, SEXP_G_OOS_ERROR))
+          sexp_stack_trace(ctx, err);
       } else if (res != SEXP_VOID) {
         sexp_write(ctx, res, out);
         sexp_write_char(ctx, '\n', out);
@@ -296,7 +297,7 @@ sexp run_main (int argc, char **argv) {
   sexp_sint_t i, j, c, quit=0, print=0, init_loaded=0, mods_loaded=0,
     fold_case=SEXP_DEFAULT_FOLD_CASE_SYMS;
   sexp_uint_t heap_size=0, heap_max_size=SEXP_MAXIMUM_HEAP_SIZE;
-  sexp out=SEXP_FALSE, ctx=NULL;
+  sexp out=SEXP_FALSE, ctx=NULL, ls;
   sexp_gc_var4(tmp, sym, args, env);
   args = SEXP_NULL;
   env = NULL;
@@ -304,6 +305,17 @@ sexp run_main (int argc, char **argv) {
   /* parse options */
   for (i=1; i < argc && argv[i][0] == '-'; i++) {
     switch ((c=argv[i][1])) {
+    case 'D':
+      init_context();
+      arg = (argv[i][2] == '\0') ? argv[++i] : argv[i]+2;
+      sym = sexp_intern(ctx, arg, -1);
+      ls = sexp_global(ctx, SEXP_G_FEATURES);
+      if (sexp_pairp(ls)) {
+        for (; sexp_pairp(sexp_cdr(ls)); ls=sexp_cdr(ls))
+          ;
+        sexp_cdr(ls) = sexp_cons(ctx, sym, SEXP_NULL);
+      }
+      break;
     case 'e':
     case 'p':
       mods_loaded = 1;
@@ -466,6 +478,7 @@ sexp run_main (int argc, char **argv) {
       load_init(1);
       arg = ((argv[i][2] == '\0') ? argv[++i] : argv[i]+2);
 #if SEXP_USE_MODULES
+      check_nonull_arg('t', arg);
       suffix = strrchr(arg, '.');
       sym = sexp_intern(ctx, suffix + 1, -1);
       *(char*)suffix = '\0';

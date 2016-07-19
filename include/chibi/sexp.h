@@ -256,7 +256,7 @@ typedef short sexp_int32_t;
 # endif
 #endif
 
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(_WIN64) || (defined(__CYGWIN__) && __SIZEOF_POINTER__ == 8)
 #define PRIoff "%lld"
 #else
 #define PRIoff "%ld"
@@ -888,9 +888,17 @@ SEXP_API sexp sexp_make_unsigned_integer(sexp ctx, sexp_luint_t x);
 #define sexp_exact_negativep(x) (sexp_fixnump(x) ? (sexp_unbox_fixnum(x) < 0) \
                                  : ((SEXP_USE_BIGNUMS && sexp_bignump(x)) \
                                     && (sexp_bignum_sign(x) < 0)))
+#define sexp_exact_positivep(x) (sexp_fixnump(x) ? (sexp_unbox_fixnum(x) > 0) \
+                                 : ((SEXP_USE_BIGNUMS && sexp_bignump(x)) \
+                                    && (sexp_bignum_sign(x) > 0)))
 #define sexp_negativep(x) (sexp_exact_negativep(x) ||                   \
                            (sexp_flonump(x) && sexp_flonum_value(x) < 0))
 #define sexp_positivep(x) (!(sexp_negativep(x)))
+#define sexp_pedantic_negativep(x) (sexp_exact_negativep(x) ||          \
+                                    (sexp_flonump(x) &&                 \
+                                     ((sexp_flonum_value(x) < 0) ||     \
+                                      (sexp_flonum_value(x) == 0 && \
+                                       1.0 / sexp_flonum_value(x) < 0))))
 
 #if SEXP_USE_BIGNUMS
 #define sexp_oddp(x) (sexp_fixnump(x) ? sexp_unbox_fixnum(x) & 1 : \
@@ -1312,6 +1320,7 @@ enum sexp_context_globals {
   SEXP_G_SYMBOLS,
 #endif
   SEXP_G_TYPES,
+  SEXP_G_FEATURES,
   SEXP_G_NUM_TYPES,
   SEXP_G_OOM_ERROR,             /* out of memory exception object */
   SEXP_G_OOS_ERROR,             /* out of stack exception object */

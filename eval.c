@@ -1487,12 +1487,35 @@ sexp sexp_register_optimization (sexp ctx, sexp self, sexp_sint_t n, sexp f, sex
     return sexp_make_flonum(ctx, cname(d));                             \
   }
 
+#ifdef SEXP_USE_COMPLEX
+#define define_complex_math_op(name, cname, f, a, b)		\
+  sexp name (sexp ctx, sexp self, sexp_sint_t n, sexp z) {	\
+    double d;                                                           \
+    if (sexp_flonump(z))                                                \
+      d = sexp_flonum_value(z);                                         \
+    else if (sexp_fixnump(z))                                           \
+      d = (double)sexp_unbox_fixnum(z);                                 \
+    maybe_convert_ratio(z)                                              \
+    maybe_convert_bignum(z)                                             \
+    maybe_convert_complex(z, f)                                         \
+    else                                                                \
+      return sexp_type_exception(ctx, self, SEXP_NUMBER, z);            \
+    if (d < a || d > b)							\
+      return sexp_complex_normalize					\
+	(f(ctx, sexp_make_complex(ctx, z, SEXP_ZERO)));			\
+    return sexp_make_flonum(ctx, cname(d));                             \
+  }
+#else
+#define define_complex_math_op(name, cname, f, a, b)	\
+  define_math_op(name, cname, f)
+#endif
+
 define_math_op(sexp_exp, exp, sexp_complex_exp)
 define_math_op(sexp_sin, sin, sexp_complex_sin)
 define_math_op(sexp_cos, cos, sexp_complex_cos)
 define_math_op(sexp_tan, tan, sexp_complex_tan)
-define_math_op(sexp_asin, asin, sexp_complex_asin)
-define_math_op(sexp_acos, acos, sexp_complex_acos)
+define_complex_math_op(sexp_asin, asin, sexp_complex_asin, -1, 1)
+define_complex_math_op(sexp_acos, acos, sexp_complex_acos, -1, 1)
 define_math_op(sexp_atan, atan, sexp_complex_atan)
 
 #if SEXP_USE_RATIOS
@@ -1918,7 +1941,7 @@ sexp sexp_make_promise (sexp ctx, sexp self, sexp_sint_t n, sexp done, sexp val)
 
 sexp sexp_type_slot_offset_op (sexp ctx , sexp self, sexp_sint_t n, sexp type, sexp slot) {
   sexp cpl, slots, *v;
-  int i, offset=0, len;
+  int i, offset, len;
   sexp_assert_type(ctx, sexp_typep, SEXP_TYPE, type);
   cpl = sexp_type_cpl(type);
   if (sexp_vectorp(cpl)) {
@@ -1929,10 +1952,13 @@ sexp sexp_type_slot_offset_op (sexp ctx , sexp self, sexp_sint_t n, sexp type, s
     len = 1;
   }
   len = sexp_vectorp(cpl) ? sexp_vector_length(cpl) : 1;
-  for (i=0; i<len; i++)
-    for (slots=sexp_type_slots(v[i]); sexp_pairp(slots); slots=sexp_cdr(slots), offset++)
-      if (sexp_car(slots) == slot)
+  for (i=len-1; i>=0; --i)
+    for (slots=sexp_type_slots(v[i]), offset=0; sexp_pairp(slots); slots=sexp_cdr(slots), ++offset)
+      if (sexp_car(slots) == slot) {
+        while (--i>=0)
+          offset += sexp_unbox_fixnum(sexp_length(ctx, sexp_type_slots(v[i])));
         return sexp_make_fixnum(offset);
+      }
   return SEXP_FALSE;
 }
 
@@ -2157,8 +2183,8 @@ sexp sexp_make_primitive_env_op (sexp ctx, sexp self, sexp_sint_t n, sexp versio
   return e;
 }
 
-sexp sexp_find_module_file (sexp ctx, const char *file) {
-  sexp res=SEXP_FALSE, ls;
+char* sexp_find_module_file_raw (sexp ctx, const char *file) {
+  sexp ls;
   char *dir, *path;
   sexp_uint_t slash, dirlen, filelen, len;
 #ifdef PLAN9
@@ -2173,22 +2199,29 @@ sexp sexp_find_module_file (sexp ctx, const char *file) {
   filelen = strlen(file);
 
   ls = sexp_global(ctx, SEXP_G_MODULE_PATH);
-  for ( ; sexp_pairp(ls) && sexp_not(res); ls=sexp_cdr(ls)) {
+  for ( ; sexp_pairp(ls); ls=sexp_cdr(ls)) {
     dir = sexp_string_data(sexp_car(ls));
     dirlen = sexp_string_size(sexp_car(ls));
     slash = dir[dirlen-1] == '/';
     len = dirlen+filelen+2-slash;
     path = (char*) sexp_malloc(len);
-    if (! path) return sexp_global(ctx, SEXP_G_OOM_ERROR);
+    if (! path) return NULL;
     memcpy(path, dir, dirlen);
     if (! slash) path[dirlen] = '/';
     memcpy(path+len-filelen-1, file, filelen);
     path[len-1] = '\0';
     if (sexp_find_static_library(path) || file_exists_p(path, buf))
-      res = sexp_c_string(ctx, path, len-1);
+      return path;
     free(path);
   }
 
+  return NULL;
+}
+
+sexp sexp_find_module_file (sexp ctx, const char *file) {
+  char* path = sexp_find_module_file_raw(ctx, file);
+  sexp res = sexp_c_string(ctx, path, -1);
+  if (path) free(path);
   return res;
 }
 
@@ -2326,64 +2359,15 @@ sexp sexp_load_standard_ports (sexp ctx, sexp env, FILE* in, FILE* out,
   return SEXP_VOID;
 }
 
-static const char* sexp_initial_features[] = {
-  sexp_platform,
-#if SEXP_BSD
-  "bsd",
-#endif
-#if defined(_WIN32) || defined(__MINGW32__)
-  "windows",
-#endif
-#if SEXP_USE_DL
-  "dynamic-loading",
-#endif
-#if SEXP_USE_BIDIRECTIONAL_PORTS
-  "bidir-ports",
-#endif
-#if SEXP_USE_MODULES
-  "modules",
-#endif
-#if SEXP_USE_BOEHM
-  "boehm-gc",
-#endif
-#if SEXP_USE_UTF8_STRINGS
-  "full-unicode",
-#endif
-#if SEXP_USE_GREEN_THREADS
-  "threads",
-#endif
-#if SEXP_USE_NTP_GETTIME
-  "ntp",
-#endif
-#if SEXP_USE_AUTO_FORCE
-  "auto-force",
-#endif
-#if SEXP_USE_COMPLEX
-  "complex",
-#endif
-#if SEXP_USE_RATIOS
-  "ratios",
-#endif
-  "r7rs",
-  "chibi",
-  NULL,
-};
-
 sexp sexp_load_standard_env (sexp ctx, sexp e, sexp version) {
   int len;
   char init_file[128];
-  const char** features;
-  int endianess_check = 1;
   sexp_gc_var3(op, tmp, sym);
   sexp_gc_preserve3(ctx, op, tmp, sym);
   if (!e) e = sexp_context_env(ctx);
   sexp_env_define(ctx, e, sym=sexp_intern(ctx, "*shared-object-extension*", -1),
                   tmp=sexp_c_string(ctx, sexp_so_extension, -1));
-  tmp = SEXP_NULL;
-  sexp_push(ctx, tmp, sym=sexp_intern(ctx, (*(unsigned char*) &endianess_check) ? "little-endian" : "big-endian", -1));
-  for (features=sexp_initial_features; *features; features++)
-    sexp_push(ctx, tmp, sym=sexp_intern(ctx, *features, -1));
-  sexp_env_define(ctx, e, sym=sexp_intern(ctx, "*features*", -1), tmp);
+  sexp_env_define(ctx, e, sym=sexp_intern(ctx, "*features*", -1), sexp_global(ctx, SEXP_G_FEATURES));
   sexp_global(ctx, SEXP_G_OPTIMIZATIONS) = SEXP_NULL;
 #if SEXP_USE_SIMPLIFY
   op = sexp_make_foreign(ctx, "sexp_simplify", 1, 0,

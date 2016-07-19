@@ -284,8 +284,7 @@ double circle_area2(struct Circle circ) {
      ((struct Point) center circle-center)
      (double radius circle-radius))
    (define-c double circle_area1 (Circle))
-   ;; TODO: struct means no pointer
-   ;;(define-c double circle_area2 ((struct Circle)))
+   (define-c double circle_area2 ((struct Circle)))
    (define-c-type Color predicate: color?)
    (define-c void set_color (short short short (result pointer Color)))
    (define-c Color make_color (short short short))
@@ -484,6 +483,33 @@ void complex_imag_set(struct VirtComplex* c, double y) {
           (map inexact->exact
                (map round (list r orig-i (virt-complex-imag c))))))))
  )
+
+(test-ffi
+ "nestedstructs"
+ (begin
+   (c-declare "
+struct vec2 {
+    float x, y;
+};
+
+struct vec2box {
+    struct vec2 position;
+};
+")
+   (define-c-struct vec2
+     predicate: vec2?
+     constructor: (make-vec2 x y)
+     (float x vec2-x vec2-x!)
+     (float y vec2-y vec2-y!))
+   (define-c-struct vec2box
+     predicate: vec2box?
+     constructor: (make-vec2box position)
+     ((struct vec2) position vec2box-pos vec2box-pos-set!)))
+ (test-assert (vec2? (make-vec2 17.0 23.0)))
+ (test '(17.0 23.0)
+     (let ((v (make-vec2 17.0 23.0)))
+       (list (vec2-x v) (vec2-y v))))
+ (test-assert (vec2box? (make-vec2box (make-vec2 17.0 23.0)))))
 
 ;; TODO: virtual method accessors
 

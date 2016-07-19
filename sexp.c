@@ -385,9 +385,53 @@ sexp sexp_finalize_c_type (sexp ctx, sexp self, sexp_sint_t n, sexp obj) {
 
 /****************************** contexts ******************************/
 
+static const char* sexp_initial_features[] = {
+  sexp_platform,
+#if SEXP_BSD
+  "bsd",
+#endif
+#if defined(_WIN32) || defined(__MINGW32__)
+  "windows",
+#endif
+#if SEXP_USE_DL
+  "dynamic-loading",
+#endif
+#if SEXP_USE_BIDIRECTIONAL_PORTS
+  "bidir-ports",
+#endif
+#if SEXP_USE_MODULES
+  "modules",
+#endif
+#if SEXP_USE_BOEHM
+  "boehm-gc",
+#endif
+#if SEXP_USE_UTF8_STRINGS
+  "full-unicode",
+#endif
+#if SEXP_USE_GREEN_THREADS
+  "threads",
+#endif
+#if SEXP_USE_NTP_GETTIME
+  "ntp",
+#endif
+#if SEXP_USE_AUTO_FORCE
+  "auto-force",
+#endif
+#if SEXP_USE_COMPLEX
+  "complex",
+#endif
+#if SEXP_USE_RATIOS
+  "ratios",
+#endif
+  "r7rs",
+  "chibi",
+  NULL,
+};
+
 void sexp_init_context_globals (sexp ctx) {
+  const char** features;
+  int i, endianess_check = 1;
   sexp type, *vec, print=NULL;
-  int i;
   sexp_context_globals(ctx)
     = sexp_make_vector(ctx, sexp_make_fixnum(SEXP_G_NUM_GLOBALS), SEXP_VOID);
 #if ! SEXP_USE_GLOBAL_SYMBOLS
@@ -419,6 +463,13 @@ void sexp_init_context_globals (sexp ctx) {
   sexp_global(ctx, SEXP_G_CONTINUABLE_SYMBOL) = sexp_intern(ctx, "continuable", -1);
   sexp_global(ctx, SEXP_G_EMPTY_VECTOR) = sexp_alloc_type(ctx, vector, SEXP_VECTOR);
   sexp_vector_length(sexp_global(ctx, SEXP_G_EMPTY_VECTOR)) = 0;
+  sexp_global(ctx, SEXP_G_FEATURES) = SEXP_NULL;
+  sexp_push(ctx, sexp_global(ctx, SEXP_G_FEATURES), SEXP_FALSE);
+  sexp_car(sexp_global(ctx, SEXP_G_FEATURES)) = sexp_intern(ctx, (*(unsigned char*) &endianess_check) ? "little-endian" : "big-endian", -1);
+  for (features=sexp_initial_features; *features; features++) {
+    sexp_push(ctx, sexp_global(ctx, SEXP_G_FEATURES), SEXP_FALSE);
+    sexp_car(sexp_global(ctx, SEXP_G_FEATURES)) = sexp_intern(ctx, *features, -1);
+  }
   sexp_global(ctx, SEXP_G_NUM_TYPES) = sexp_make_fixnum(SEXP_NUM_CORE_TYPES);
   sexp_global(ctx, SEXP_G_TYPES)
     = sexp_make_vector(ctx, sexp_make_fixnum(SEXP_INIT_NUM_TYPES), SEXP_VOID);
@@ -1212,7 +1263,7 @@ sexp sexp_intern(sexp ctx, const char *str, sexp_sint_t len) {
     goto normal_intern;
   for ( ; i<len; i++, p++) {
     c = *p;
-    if ((unsigned char)c <= 32 || (unsigned char)c > 127 || c == '\\' || c == '.' || sexp_is_separator(c))
+    if ((unsigned char)c <= 32 || (unsigned char)c > 127 || c == '\\' || c == '.' || c =='#' || sexp_is_separator(c))
       goto normal_intern;
     he = huff_table[(unsigned char)c];
     newbits = he.len;
@@ -1944,7 +1995,7 @@ sexp sexp_write_one (sexp ctx, sexp obj, sexp out) {
                   sexp_tolower(str[3]) == 'n')))))
         ? '|' : EOF;
       for (i=sexp_lsymbol_length(obj)-1; i>=0; i--)
-        if (str[i] <= ' ' || str[i] == '\\' || sexp_is_separator(str[i]))
+        if (str[i] <= ' ' || str[i] == '\\' || str[i] == '#' || sexp_is_separator(str[i]))
           c = '|';
       if (c!=EOF) sexp_write_char(ctx, c, out);
       for (i=sexp_lsymbol_length(obj); i>0; str++, i--) {
@@ -1968,7 +2019,7 @@ sexp sexp_write_one (sexp ctx, sexp obj, sexp out) {
 #if SEXP_USE_COMPLEX
     case SEXP_COMPLEX:
       sexp_write(ctx, sexp_complex_real(obj), out);
-      if (!sexp_negativep(sexp_complex_imag(obj))
+      if (!sexp_pedantic_negativep(sexp_complex_imag(obj))
           && !sexp_infp(sexp_complex_imag(obj)))
         sexp_write_char(ctx, '+', out);
       if (sexp_complex_imag(obj) == SEXP_NEG_ONE)
@@ -2181,7 +2232,7 @@ sexp sexp_read_string (sexp ctx, sexp in, int sentinel) {
       case 'n': c = '\n'; break;
       case 'r': c = '\r'; break; 
       case 't': c = '\t'; break;
-      case 'x':
+      case 'x': case 'X':
         res = sexp_read_number(ctx, in, 16, 0);
         if (sexp_fixnump(res)) {
           c = sexp_read_char(ctx, in);
@@ -2211,6 +2262,8 @@ sexp sexp_read_string (sexp ctx, sexp in, int sentinel) {
           if (c=='\n') {
             sexp_port_line(in)++;
             do {c=sexp_read_char(ctx, in);} while (c==' ' || c=='\t');
+            sexp_push_char(ctx, c, in);
+            continue;
           }
         }
 #endif
@@ -3008,10 +3061,10 @@ sexp sexp_read_raw (sexp ctx, sexp in, sexp *shares) {
         sexp_push_char(ctx, c1, in);
         res = sexp_read_symbol(ctx, in, '!', 0);
         if (SEXP_USE_FOLD_CASE_SYMS && sexp_stringp(res)
-            && strcmp("!fold-case", sexp_string_data(res)) == 0) {
+            && strcasecmp("!fold-case", sexp_string_data(res)) == 0) {
           sexp_port_fold_casep(in) = 1;
         } else if (SEXP_USE_FOLD_CASE_SYMS && sexp_stringp(res)
-                   && strcmp("!no-fold-case", sexp_string_data(res)) == 0) {
+                   && strcasecmp("!no-fold-case", sexp_string_data(res)) == 0) {
           sexp_port_fold_casep(in) = 0;
         } else {
           res = sexp_read_error(ctx, "unknown #! symbol", res, in);

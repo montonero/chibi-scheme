@@ -651,7 +651,7 @@ sexp sexp_bignum_sqrt (sexp ctx, sexp a, sexp* rem_out) {
   if (! sexp_bignump(a)) return sexp_type_exception(ctx, NULL, SEXP_BIGNUM, a);
   sexp_gc_preserve4(ctx, res, rem, tmp, tmpa);
   /* initial estimate via flonum, ignoring signs */
-  if (sexp_negativep(a)) {
+  if (sexp_exact_negativep(a)) {
     tmpa = sexp_copy_bignum(ctx, NULL, a, 0);
     a = tmpa;
     sexp_negate(a);
@@ -780,13 +780,13 @@ sexp sexp_ratio_round (sexp ctx, sexp a) {
   sexp_gc_preserve2(ctx, q, r);
   q = sexp_quotient(ctx, sexp_ratio_numerator(a), sexp_ratio_denominator(a));
   if ((sexp_ratio_denominator(a) == SEXP_TWO) && sexp_oddp(q)) {
-    q = sexp_add(ctx, q, (sexp_positivep(q) ? SEXP_ONE : SEXP_NEG_ONE));
+    q = sexp_add(ctx, q, (sexp_exact_positivep(q) ? SEXP_ONE : SEXP_NEG_ONE));
   } else {
     r = sexp_remainder(ctx, sexp_ratio_numerator(a), sexp_ratio_denominator(a));
     r = sexp_mul(ctx, r, SEXP_TWO);
-    if (sexp_negativep(r)) {sexp_negate(r);}
+    if (sexp_exact_negativep(r)) {sexp_negate(r);}
     if (sexp_unbox_fixnum(sexp_compare(ctx, r, sexp_ratio_denominator(a))) > 0)
-      q = sexp_add(ctx, q, (sexp_positivep(q) ? SEXP_ONE : SEXP_NEG_ONE));
+      q = sexp_add(ctx, q, (sexp_exact_positivep(q) ? SEXP_ONE : SEXP_NEG_ONE));
   }
   sexp_gc_release2(ctx);
   return q;
@@ -800,7 +800,7 @@ sexp sexp_ratio_floor (sexp ctx, sexp a) {
   sexp_gc_var1(q);
   sexp_gc_preserve1(ctx, q);
   q = sexp_quotient(ctx, sexp_ratio_numerator(a), sexp_ratio_denominator(a));
-  if (sexp_negativep(sexp_ratio_numerator(a)))
+  if (sexp_exact_negativep(sexp_ratio_numerator(a)))
     q = sexp_add(ctx, q, SEXP_NEG_ONE);
   sexp_gc_release1(ctx);
   return q;
@@ -810,7 +810,7 @@ sexp sexp_ratio_ceiling (sexp ctx, sexp a) {
   sexp_gc_var1(q);
   sexp_gc_preserve1(ctx, q);
   q = sexp_quotient(ctx, sexp_ratio_numerator(a), sexp_ratio_denominator(a));
-  if (sexp_positivep(sexp_ratio_numerator(a)))
+  if (sexp_exact_positivep(sexp_ratio_numerator(a)))
     q = sexp_add(ctx, q, SEXP_ONE);
   sexp_gc_release1(ctx);
   return q;
@@ -978,7 +978,7 @@ sexp sexp_complex_sqrt (sexp ctx, sexp z) {
   r = sqrt(x*x + y*y);
   res = sexp_make_complex(ctx, SEXP_ZERO, SEXP_ZERO);
   sexp_complex_real(res) = sexp_make_flonum(ctx, sqrt((x+r)/2));
-  sexp_complex_imag(res) = sexp_make_flonum(ctx, (y<0?-1:1)*sqrt((-x+r)/2));
+  sexp_complex_imag(res) = sexp_make_flonum(ctx, ((y<0||(y==0&&1/y<0))?-1:1)*sqrt((-x+r)/2));
   sexp_gc_release1(ctx);
   return res;
 }
@@ -1019,22 +1019,19 @@ sexp sexp_complex_tan (sexp ctx, sexp z) {
 }
 
 sexp sexp_complex_asin (sexp ctx, sexp z) {
-  sexp_gc_var2(res, tmp);
-  sexp_gc_preserve2(ctx, res, tmp);
+  sexp_gc_var3(res, tmp, tmp2);
+  sexp_gc_preserve3(ctx, res, tmp, tmp2);
   res = sexp_complex_mul(ctx, z, z);
-  tmp = sexp_make_complex(ctx, SEXP_ONE, SEXP_ZERO);
-  res = sexp_complex_sub(ctx, tmp, res);
-  res = sexp_complex_sqrt(ctx, res);
-  /* tmp = iz */
-  sexp_complex_real(tmp) = sexp_complex_imag(z);
-  sexp_negate(sexp_complex_real(tmp));
+  res = sexp_sub(ctx, SEXP_ONE, res);
+  res = sexp_sqrt(ctx, NULL, 1, res);
+  tmp = sexp_make_complex(ctx, SEXP_ZERO, SEXP_ZERO);
+  sexp_complex_real(tmp) = sexp_mul(ctx, SEXP_NEG_ONE, sexp_complex_imag(z));
   sexp_complex_imag(tmp) = sexp_complex_real(z);
-  res = sexp_complex_add(ctx, tmp, res);
-  tmp = sexp_complex_log(ctx, res);
-  /* res = -i*tmp */
-  res = sexp_complex_copy(ctx, tmp);
-  sexp_negate(sexp_complex_imag(res));
-  sexp_gc_release2(ctx);
+  res = sexp_add(ctx, tmp, res);
+  res = sexp_log(ctx, NULL, 1, res);
+  tmp = sexp_make_complex(ctx, SEXP_ZERO, SEXP_NEG_ONE);
+  res = sexp_mul(ctx, res, tmp);
+  sexp_gc_release3(ctx);
   return res;
 }
 
@@ -1198,7 +1195,7 @@ sexp sexp_add (sexp ctx, sexp a, sexp b) {
       r = sexp_make_fixnum(sum);
     break;
   case SEXP_NUM_FIX_FLO:
-    r = sexp_make_flonum(ctx, sexp_fixnum_to_double(a)+sexp_flonum_value(b));
+    r = a == SEXP_ZERO ? b : sexp_make_flonum(ctx, sexp_fixnum_to_double(a)+sexp_flonum_value(b));
     break;
   case SEXP_NUM_FIX_BIG:
     r = sexp_bignum_normalize(sexp_bignum_add_fixnum(ctx, b, a));
