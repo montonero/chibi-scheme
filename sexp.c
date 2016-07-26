@@ -142,7 +142,7 @@ sexp sexp_finalize_port (sexp ctx, sexp self, sexp_sint_t n, sexp port) {
   if (sexp_port_openp(port)) {
     sexp_port_openp(port) = 0;
     if (sexp_oportp(port)) sexp_flush_forced(ctx, port);
-#ifndef PLAN9
+#if !defined(PLAN9) && !defined(_WIN32)
     if (sexp_filenop(sexp_port_fd(port))
         && sexp_fileno_openp(sexp_port_fd(port))) {
       if (sexp_port_shutdownp(port)) {
@@ -169,7 +169,11 @@ sexp sexp_finalize_port (sexp ctx, sexp self, sexp_sint_t n, sexp port) {
 
 #if SEXP_USE_DL
 sexp sexp_finalize_dl (sexp ctx, sexp self, sexp_sint_t n, sexp dl) {
+#ifndef _WIN32
   dlclose(sexp_dl_handle(dl));
+#else
+  FreeLibrary(sexp_dl_handle(dl));
+#endif
   return SEXP_VOID;
 }
 #endif

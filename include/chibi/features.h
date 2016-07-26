@@ -342,7 +342,7 @@
 #endif
 
 #ifndef SEXP_USE_DL
-#if defined(PLAN9) || defined(_WIN32)
+#if defined(PLAN9)
 #define SEXP_USE_DL 0
 #else
 #define SEXP_USE_DL ! SEXP_USE_NO_FEATURES
@@ -763,11 +763,14 @@
 #pragma warning(disable:4146) /* unary minus operator to unsigned type */
 #define strcasecmp lstrcmpi
 #define strncasecmp(s1, s2, n) lstrcmpi(s1, s2)
-#ifdef __MINGW32__
+#if defined(__MINGW32__) || defined(_WIN32)
 #include <shlwapi.h>
 #define strcasestr StrStrI
 #else
+#ifndef _WIN32
 #define snprintf(buf, len, fmt, val) sprintf(buf, fmt, val)
+#endif
+
 #define strcasecmp lstrcmpi
 #define strncasecmp(s1, s2, n) lstrcmpi(s1, s2)
 #define round(x) floor((x)+0.5)
@@ -791,7 +794,7 @@
 #define sexp_nan (0.0/0.0)
 #endif
 
-#ifdef __MINGW32__
+#if defined(__MINGW32__) || defined(_WIN32)
 #ifdef BUILDING_DLL
 #define SEXP_API    __declspec(dllexport)
 #else

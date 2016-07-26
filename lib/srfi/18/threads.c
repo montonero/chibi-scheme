@@ -636,6 +636,7 @@ sexp sexp_lookup_named_type (sexp ctx, sexp env, const char *name) {
 
 #endif  /* SEXP_USE_GREEN_THREADS */
 
+SEXP_API sexp sexp_init_library (sexp ctx, sexp self, sexp_sint_t n, sexp env, const char* version, const sexp_abi_identifier_t abi);
 sexp sexp_init_library (sexp ctx, sexp self, sexp_sint_t n, sexp env, const char* version, const sexp_abi_identifier_t abi) {
   sexp t;
   sexp_gc_var1(name);
